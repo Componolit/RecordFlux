@@ -36,7 +36,7 @@ from rflx.model import (
     Opaque,
     Refinement,
     Scalar,
-    Type,
+    Type, Link,
 )
 from rflx.pyrflx.bitstring import Bitstring
 from rflx.pyrflx.error import PyRFLXError, Severity, Subsystem
@@ -512,6 +512,7 @@ class MessageValue(TypeValue):
         super().__init__(model)
         self._skip_verification = skip_verification
         self._refinements = refinements or []
+        self._covered_links: List[Link] = []
 
         self._fields: Mapping[str, MessageValue.Field] = (
             state.fields
@@ -600,6 +601,10 @@ class MessageValue(TypeValue):
 
     def equal_type(self, other: Type) -> bool:
         return self.identifier == other.identifier
+
+    @property
+    def covered_links(self) -> List[Link]:
+        return self._covered_links
 
     def _valid_refinement_condition(self, refinement: "RefinementValue") -> bool:
         return self.__simplified(refinement.condition) == TRUE
