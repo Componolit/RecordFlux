@@ -32,6 +32,7 @@ from rflx.model import (
     Enumeration,
     Field,
     Integer,
+    Link,
     Message,
     Opaque,
     Refinement,
@@ -609,19 +610,30 @@ class MessageValue(TypeValue):
     def _valid_refinement_condition(self, refinement: "RefinementValue") -> bool:
         return self.__simplified(refinement.condition) == TRUE
 
-    def _next_field(self, fld: str) -> str:
-        if fld == FINAL.name:
-            return ""
-        if self._skip_verification and self._fields[fld].next:
-            return self._fields[fld].next
-        if fld == INITIAL.name:
+    def _next_link(self, source_field_name: str) -> Optional[Link]:
+        field = Field(source_field_name)
+        if field == INITIAL:
             links = self._type.outgoing(INITIAL)
-            return links[0].target.name if links else FINAL.name
+            return links[0] if links else None
+        if field == FINAL:
+            return None
 
-        for l in self._type.outgoing(Field(fld)):
-            if self.__simplified(l.condition) == TRUE:
-                return l.target.name
-        return ""
+        next_link = None
+        for link in self._type.outgoing(field):
+            if self.__simplified(link.condition) == TRUE:
+                next_link = link
+                break
+        return next_link
+
+    def _next_field(self, field_name: str) -> Tuple[str, Optional[Link]]:
+        if self._skip_verification and field_name != FINAL.name and self._fields[field_name].next:
+            return self._fields[field_name].next, None
+
+        next_link = self._next_link(field_name)
+        if next_link is None and field_name == INITIAL.name:
+            # the INITIAL field has no outgoing links in case of a NULL message
+            return FINAL.name, None
+        return next_link.target.name if next_link is not None else "", next_link
 
     def _prev_field(self, fld: str) -> str:
         if fld == INITIAL.name:
@@ -690,7 +702,7 @@ class MessageValue(TypeValue):
         assert not self._skip_verification
         if isinstance(value, bytes):
             value = Bitstring.from_bytes(value)
-        current_field_name = self._next_field(INITIAL.name)
+        current_field_name, _ = self._next_field(INITIAL.name)
         last_field_first_in_bitstr = current_field_first_in_bitstr = 0
 
         def get_current_pos_in_bitstr(field_name: str) -> int:
@@ -853,7 +865,7 @@ class MessageValue(TypeValue):
 
     def _preset_fields(self, fld: str) -> None:
         assert not self._skip_verification
-        nxt = self._next_field(fld)
+        nxt, _ = self._next_field(fld)
         fields: List[str] = []
         while nxt and nxt != FINAL.name:
             field = self._fields[nxt]
@@ -881,7 +893,7 @@ class MessageValue(TypeValue):
                 field.typeval.clear()
                 break
             self._last_field = nxt
-            nxt = self._next_field(nxt)
+            nxt, _ = self._next_field(nxt)
         try:
             self.accessible_fields = (
                 self.accessible_fields[: self.accessible_fields.index(fld) + 1] + fields
@@ -907,7 +919,7 @@ class MessageValue(TypeValue):
     def _is_checksum_settable(self, checksum: "MessageValue.Checksum") -> bool:
         def valid_path(value_range: ValueRange) -> bool:
             lower = value_range.lower.substituted(
-                func=lambda e: self._fields[self._next_field(INITIAL.name)].name_first
+                func=lambda e: self._fields[self._next_field(INITIAL.name)[0]].name_first
                 if e == self.__message_first_name
                 else e
             )
@@ -931,7 +943,7 @@ class MessageValue(TypeValue):
             if upper_field_name == "Message":
                 upper_field_name = "Final"
             while field != upper_field_name:
-                field = self._next_field(field)
+                field, _ = self._next_field(field)
                 if field == "Final" or field in self._checksums:
                     continue
                 if field == "" or not self._fields[field].set:
@@ -1021,7 +1033,7 @@ class MessageValue(TypeValue):
     @property
     def bitstring(self) -> Bitstring:
         bits = ""
-        field = self._next_field(INITIAL.name)
+        field, _ = self._next_field(INITIAL.name)
         while field and field != FINAL.name:
             field_val = self._fields[field]
             if (
@@ -1031,7 +1043,7 @@ class MessageValue(TypeValue):
             ):
                 break
             bits = f"{bits[: field_val.first.value]}{str(self._fields[field].typeval.bitstring)}"
-            field = self._next_field(field)
+            field, _ = self._next_field(field)
 
         return Bitstring(bits)
 
@@ -1101,7 +1113,7 @@ class MessageValue(TypeValue):
     def valid_message(self) -> bool:
         return (
             bool(self.valid_fields)
-            and self._next_field(self.valid_fields[-1]) == FINAL.name
+            and self._next_field(self.valid_fields[-1])[0] == FINAL.name
             and all(
                 (self._is_checksum_settable(checksum) or self._skip_verification)
                 and self._calculate_checksum(checksum) == self.get(checksum.field_name)
@@ -1133,10 +1145,10 @@ class MessageValue(TypeValue):
             if isinstance(v.last, Number):
                 self._simplified_mapping[v.name_last] = v.last
 
-        nxt = self._next_field(INITIAL.name)
+        nxt, _ = self._next_field(INITIAL.name)
         while nxt:
             last_field = nxt
-            nxt = self._next_field(last_field)
+            nxt, _ = self._next_field(last_field)
             last = self._fields[last_field].last
             if nxt == FINAL.name or not isinstance(last, Number):
                 break

@@ -318,9 +318,12 @@ def test_message_value_invalid_value(tlv_message_value: MessageValue) -> None:
 def test_message_value_next(tlv_message_value: MessageValue) -> None:
     # pylint: disable=protected-access
     tlv_message_value.set("Tag", "Msg_Data")
-    assert tlv_message_value._next_field(INITIAL.name) == "Tag"
-    assert tlv_message_value._next_field("Tag") == "Length"
-    assert tlv_message_value._next_field(FINAL.name) == ""
+    assert tlv_message_value._next_field(INITIAL.name) == (
+        "Tag",
+        tlv_message_value._type.structure[0],
+    )
+    assert tlv_message_value._next_field("Tag") == ("Length", tlv_message_value._type.structure[3])
+    assert tlv_message_value._next_field(FINAL.name) == ("", None)
 
 
 def test_message_value_prev(tlv_message_value: MessageValue) -> None:
