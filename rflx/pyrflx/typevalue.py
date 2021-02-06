@@ -761,7 +761,9 @@ class MessageValue(TypeValue):
                         f"Bitstring representing the message is too short - "
                         f"stopped while parsing field: {current_field_name}"
                     ) from None
-            current_field_name = self._next_field(current_field_name)
+            current_field_name, used_link = self._next_field(current_field_name)
+            assert isinstance(used_link, Link)
+            self._covered_links.append(used_link)
 
     def _set_unchecked(
         self, field_name: str, value: Union[bytes, int, str, Sequence[TypeValue]]
