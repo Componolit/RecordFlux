@@ -1,7 +1,7 @@
 # pylint: disable=too-many-lines
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from rflx.common import Base
 from rflx.const import BUILTINS_PACKAGE
@@ -37,7 +37,7 @@ from rflx.model import (
     Opaque,
     Refinement,
     Scalar,
-    Type, Link,
+    Type,
 )
 from rflx.pyrflx.bitstring import Bitstring
 from rflx.pyrflx.error import PyRFLXError, Severity, Subsystem
@@ -483,7 +483,7 @@ class ArrayValue(CompositeValue):
         return Number(len(self.bitstring))
 
     @property
-    def value(self) -> Sequence[TypeValue]:
+    def value(self) -> List[TypeValue]:
         self._raise_initialized()
         return self._value
 
@@ -496,6 +496,10 @@ class ArrayValue(CompositeValue):
     @property
     def accepted_type(self) -> type:
         return list
+
+    @property
+    def element_type(self) -> Type:
+        return self._element_type
 
 
 class MessageValue(TypeValue):
@@ -606,6 +610,16 @@ class MessageValue(TypeValue):
     @property
     def covered_links(self) -> List[Link]:
         return self._covered_links
+
+    def sdu_messages(self) -> List["MessageValue"]:
+        sdu_messages: List["MessageValue"] = []
+        for field in self._fields.values():
+            typeval = field.typeval
+            if isinstance(typeval, ArrayValue) and isinstance(typeval.element_type, Message):
+                sdu_messages.extend(cast(List[MessageValue], typeval.value))
+            if isinstance(typeval, OpaqueValue) and typeval.nested_message is not None:
+                sdu_messages.append(typeval.nested_message)
+        return sdu_messages
 
     def _valid_refinement_condition(self, refinement: "RefinementValue") -> bool:
         return self.__simplified(refinement.condition) == TRUE
