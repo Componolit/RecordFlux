@@ -329,3 +329,22 @@ jobs:
         run_spat -Ptest -ca -ra
         run_spat -Ptest -ca -ra -d
         run_spat -Ptest -g
+
+  notification:
+    name: Notification
+    runs-on: ubuntu-latest
+    needs: [checks, installation, tests_python, tests_python_verification, tests_spark, runtime_compatibility, verification, verification_scheduled]
+    steps:
+      - uses: technote-space/workflow-conclusion-action@v2
+      - name: Send mail
+        uses: dawidd6/action-send-mail@v2
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "[${{ github.repository }}] Tests failed"
+          body: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          to: ${{secrets.MAIL_TO}}
+          from: GitHub
+        if: env.WORKFLOW_CONCLUSION == 'failure'
