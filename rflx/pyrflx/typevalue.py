@@ -622,7 +622,7 @@ class MessageValue(TypeValue):
         return sdu_messages
 
     def _valid_refinement_condition(self, refinement: "RefinementValue") -> bool:
-        return self.__simplified(refinement.condition) == TRUE
+        return simplified(refinement.condition, self.__subst) == TRUE
 
     def _next_link(self, source_field_name: str) -> Optional[Link]:
         field = Field(source_field_name)
@@ -634,7 +634,7 @@ class MessageValue(TypeValue):
 
         next_link = None
         for link in self._type.outgoing(field):
-            if self.__simplified(link.condition) == TRUE:
+            if simplified(link.condition, self.__subst) == TRUE:
                 next_link = link
                 break
         return next_link
@@ -657,7 +657,7 @@ class MessageValue(TypeValue):
         prev: List[str] = [
             l.source.name
             for l in self._type.incoming(Field(fld))
-            if self.__simplified(l.condition) == TRUE
+            if simplified(l.condition, self.__subst) == TRUE
         ]
 
         if len(prev) == 1:
@@ -676,18 +676,18 @@ class MessageValue(TypeValue):
             if (
                 self._fields[l.source.name].set
                 and l.size != UNDEFINED
-                and (self._skip_verification or self.__simplified(l.condition) == TRUE)
+                and (self._skip_verification or simplified(l.condition, self.__subst) == TRUE)
             ):
-                size = self.__simplified(l.size)
+                size = simplified(l.size, self.__subst)
                 return size if isinstance(size, Number) else None
         return None
 
     def _get_first(self, fld: str) -> Optional[Number]:
         for l in self._type.incoming(Field(fld)):
             if l.first != UNDEFINED and (
-                self._skip_verification or self.__simplified(l.condition) == TRUE
+                self._skip_verification or simplified(l.condition, self.__subst) == TRUE
             ):
-                first = self.__simplified(l.first)
+                first = simplified(l.first, self.__subst)
                 return first if isinstance(first, Number) else None
         prv = self._prev_field(fld)
         if self._skip_verification and prv:
@@ -697,7 +697,7 @@ class MessageValue(TypeValue):
             assert isinstance(size, Number)
             return first + size
         if prv and UNDEFINED not in (self._fields[prv].first, self._fields[prv].typeval.size):
-            first = self.__simplified(Add(self._fields[prv].first, self._fields[prv].typeval.size))
+            first = simplified(Add(self._fields[prv].first, self._fields[prv].typeval.size), self.__subst)
             return first if isinstance(first, Number) else None
         return None
 
@@ -814,7 +814,7 @@ class MessageValue(TypeValue):
 
         def check_outgoing_condition_satisfied() -> None:
             if all(
-                self.__simplified(o.condition) == FALSE
+                simplified(o.condition, self.__subst) == FALSE
                 for o in self._type.outgoing(Field(field_name))
             ):
                 self._fields[field_name].typeval.clear()
@@ -890,7 +890,7 @@ class MessageValue(TypeValue):
             if first is None:
                 break
 
-            if (self.__simplified(self._type.field_condition(Field(nxt))) == TRUE) and (
+            if (simplified(self._type.field_condition(Field(nxt)), self.__subst) == TRUE) and (
                 self._is_valid_opaque_field(nxt)
                 if isinstance(self._fields[nxt].typeval, OpaqueValue)
                 else size is not None
@@ -970,7 +970,7 @@ class MessageValue(TypeValue):
             return False
 
         for expr_tuple in checksum.parameters:
-            expr_tuple.evaluated_expression = self.__simplified(expr_tuple.expression)
+            expr_tuple.evaluated_expression = simplified(expr_tuple.expression, self.__subst)
             if (
                 isinstance(expr_tuple.evaluated_expression, ValueRange)
                 and isinstance(expr_tuple.expression, ValueRange)
@@ -1093,7 +1093,7 @@ class MessageValue(TypeValue):
             if (
                 l.size != UNDEFINED
                 and self._fields[l.source.name].set
-                and self.__simplified(l.condition) == TRUE
+                and simplified(l.condition, self.__subst) == TRUE
             ):
                 valid_edge = l
                 break
@@ -1112,9 +1112,9 @@ class MessageValue(TypeValue):
             for f in self.accessible_fields
             if (
                 self._fields[f].set
-                and self.__simplified(self._type.field_condition(Field(f))) == TRUE
+                and simplified(self._type.field_condition(Field(f)), self.__subst) == TRUE
                 and any(
-                    self.__simplified(o.condition) == TRUE for o in self._type.outgoing(Field(f))
+                    simplified(o.condition, self.__subst) == TRUE for o in self._type.outgoing(Field(f))
                 )
             )
         ]
@@ -1176,21 +1176,15 @@ class MessageValue(TypeValue):
 
         # ISSUE: Componolit/RecordFlux#422
         self._simplified_mapping.update({ValidChecksum(f): TRUE for f in self._checksums})
-
-    def __simplified(self, expr: Expr) -> Expr:
-        if expr in {TRUE, FALSE}:
-            return expr
-
-        def subst(expression: Expr) -> Expr:
-            if expression in self._simplified_mapping:
-                assert isinstance(expression, Name)
-                return self._simplified_mapping[expression]
-            if expression in self.__type_literals:
-                assert isinstance(expression, Name)
-                return self.__type_literals[expression]
-            return expression
-
-        return expr.substituted(func=subst).substituted(func=subst).simplified()
+    
+    def __subst(self, expression: Expr) -> Expr:
+        if expression in self._simplified_mapping:
+            assert isinstance(expression, Name)
+            return self._simplified_mapping[expression]
+        if expression in self.__type_literals:
+            assert isinstance(expression, Name)
+            return self.__type_literals[expression]
+        return expression
 
     class Checksum:
         def __init__(self, field_name: str, parameters: Sequence[Expr]):
@@ -1283,6 +1277,13 @@ class MessageValue(TypeValue):
         fields: Optional[Mapping[str, "MessageValue.Field"]] = None
         checksums: Optional[Mapping[str, "MessageValue.Checksum"]] = None
         type_literals: Optional[Mapping[Name, Expr]] = None
+
+
+def simplified(expr: Expr, subst: Callable) -> Expr:
+    if expr in {TRUE, FALSE}:
+        return expr
+
+    return expr.substituted(func=subst).substituted(func=subst).simplified()
 
 
 class RefinementValue:
